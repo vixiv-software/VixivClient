@@ -3,3 +3,6 @@ __pycache__
 *.glsl
 concurrent_requests.py
 workflow.py
+build
+dist
+VixivClient.egg-info

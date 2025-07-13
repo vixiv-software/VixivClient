@@ -29,7 +29,7 @@ pip install VixivClient
 If you do not have a vixiv google cloud account, you can install directly from github:
 
 ```bash
-pip install git+https://github.com/vixiv-software/VIXIV-FLASK-API.git
+pip install git+https://github.com/vixiv-software/VixivClient.git
 ```
 
 ## Methods
