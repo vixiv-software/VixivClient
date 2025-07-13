@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "VixivClient"
+version = "0.1.1"
+description = "Interface to the Vixiv API"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+  { name = "Michael Bonaventura", email = "mike.b@vixiv.net" },
+  { name = "Zhenyu Dai", email = "zhenyu@vixiv.net" },
+]
+dependencies = [
+   "trimesh>=4.6.9",
+    "numpy>=2.2.6",
+]
+
+[tool.setuptools.packages.find]
+exclude = [
+    "mesh*",
+]
