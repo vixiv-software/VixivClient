@@ -7,7 +7,7 @@ name = "VixivClient"
 version = "0.1.1"
 description = "Interface to the Vixiv API"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 authors = [
   { name = "Michael Bonaventura", email = "mike.b@vixiv.net" },
   { name = "Zhenyu Dai", email = "zhenyu@vixiv.net" },
