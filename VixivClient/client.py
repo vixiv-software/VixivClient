@@ -3,13 +3,19 @@ import json
 import os
 from pathlib import Path
 import numpy as np
-import pickle
 import trimesh
+import io
+from uuid import uuid4
+from tempfile import NamedTemporaryFile
+import traceback
 
 class VixivClient:
     """Python client for the Vixiv API."""
+
+    packing_endpoints = ['/pack-voxels', '/get-visualization-data', '/cell-volume', '/packing-api-status']
+    meshing_endpoints = ['/meshing-api-status', '/accelerators', '/generate-mesh']
     
-    def __init__(self, api_key=None, api_url=None, base_url=None, debug=False):
+    def __init__(self, api_key=None, packing_api_url=None, meshing_api_url=None, id=None, debug=False):
         """Initialize the client with API key and URL.
         
         Args:
@@ -17,19 +23,29 @@ class VixivClient:
             api_url (str, optional): Base URL of the API. If not provided, will look for VIXIV_API_URL environment variable
             base_url (str, optional): Alias for api_url, maintained for backward compatibility
         """
+        self.id = id
         self.api_key = api_key or os.getenv('VIXIV_API_KEY')
         self.debug = debug
         if not self.api_key:
             raise ValueError("API key must be provided either directly or through VIXIV_API_KEY environment variable")
         
         # Handle both api_url and base_url for backward compatibility
-        self.api_url = api_url or base_url or os.getenv('VIXIV_API_URL', 'https://vixiv-flask-api-gcp-523287772169.us-central1.run.app')
+        self.packing_api_url = "" if packing_api_url is None else packing_api_url + "/api/v1"
+        self.meshing_api_url = "" if meshing_api_url is None else meshing_api_url + "/api/v1"
         self.session = requests.Session()
         self.session.headers.update({'X-API-Key': self.api_key})
    
-    def _make_request(self, method: str, endpoint: str, **kwargs) -> dict:
+    def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """Make a request to the API."""
-        url = f"{self.api_url}/{endpoint.lstrip('/')}"
+        packing = endpoint in self.packing_endpoints
+        meshing = endpoint in self.meshing_endpoints
+        if not packing and not meshing:
+            raise ValueError("Requested endpoint is not associated with a known API")
+        if packing and meshing:
+            raise ValueError("Requested enpoint is associated with multiple known APIs, call is ambiguous")
+        api_url = self.packing_api_url if packing else self.meshing_api_url
+        url = f"{api_url}/{endpoint.lstrip('/')}"
+
         if self.debug:
             print(f"Making request to: {url}")
             print(f"Method: {method}")
@@ -54,118 +70,180 @@ class VixivClient:
         
         try:
             response.raise_for_status()
-            return response.json()
+            return response
         except requests.exceptions.HTTPError as e:
             print(f"Response status code: {response.status_code}")
             print(f"Response error: {response.json()['error']}")
             print(f"Response traceback: {response.json()['traceback']}")
             raise
 
-    def voxelize_mesh(
+    def pack_voxels(
             self,
-            file_path: str,
-            network_path: str,
-            cell_type: str = "fcc",
-            cell_size: tuple = (40, 40, 40),
-            beam_diameter: float = 2.0,
-            offsets: np.ndarray = None,
-            force_dir: tuple = (0, 0, 1),
-            min_skin_thickness: float = 0.01,
-            invert_cells: bool = True,
-            cell_centers: np.ndarray = None,
-            zero_thickness_dir: str = 'x',
-            device: str='cpu',
-        ) -> str:
-        """Voxelize a mesh file and save the result."""
+            mesh_path: str | Path,
+            cell_size: float | tuple[float], 
+            skin_thickness: float, 
+            network_direction: tuple[float],
+        ) -> bytes:
+        """Find packing arrangements.
+
+        Args:
+            mesh_path (str | Path): path to mesh describing geometry to pack
+            cell_size (float | tuple[float]): size of the individual voxel
+            skin_thickness (float): desired distance between outer geometry and packed voxels
+            network_direction (tuple[float]): which direction the voxel's local up direction should align with
+
+        Returns:
+            bytes: voxelization results. Reccomended file extension to save is '.vox'
+        """
+        if isinstance(mesh_path, str):
+            mesh_path = Path(mesh_path)
+
+        # prepare data
+        cell_size = [cell_size] * 3 if isinstance(cell_size, float | int) else cell_size
+        data = {
+            'cell_size': ",".join([str(i) for i in cell_size]),
+            'skin_thickness': skin_thickness,
+            'network_direction': ",".join([str(i) for i in network_direction]),
+        }
+
+        # prepare files and make request
+        files = {}
+        with open(mesh_path, 'rb') as f:
+            files['input_mesh.stl'] = (os.path.basename(mesh_path), f, 'application/octet-stream')
+            response = self._make_request("POST", '/pack-voxels', files=files, data=data, timeout=30)
+
+        # stream result
+        if response.headers.get('success', False):
+            buf = bytearray()
+            for chunk in response.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    buf.extend(chunk)
+            return bytes(buf)
+        else:
+            if self.debug:
+                print(f"Error calling /pack-voxels:")
+                print(f"   Error: {response.headers.get("error")}")
+                print(f"   Traceback: {response.headers.get("traceback")}")
+            return None
+        
+    def get_visualization_data(self, voxelization_data: bytes | str | Path) -> dict[str, np.ndarray]:
+        """Collect visualization info needed to display solution on frontend
+
+        Args:
+            voxelization_data (bytes | Path): data recieved from pack_voxels method, either raw or filepath
+
+        Returns:
+            dict[str, np.ndarray]: 'cell_size': (3,) array, 'cell_centers': (N, 3) array, 
+                'rotation_matrix': (3, 3) array, 'rotation_point': (3,) array
+        """
+        temp_file = None
         try:
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"File not found: {file_path}")
+            # prepare files
+            files = {}
+            if isinstance(voxelization_data, bytes):
+                temp_file = NamedTemporaryFile(delete_on_close=False, delete=False, suffix=".vox")
+                temp_file.write(voxelization_data)
+                temp_file.seek(0)
+                files['voxelization_results.vox'] = (os.path.basename(temp_file.file.name), temp_file, 'application/octet-stream')
+            elif isinstance(voxelization_data, Path) or isinstance(voxelization_data, str):
+                temp_file = open(voxelization_data, 'rb')
+                files['voxelization_results.vox'] = (os.path.basename(voxelization_data), temp_file, 'application/octet-stream')
+            else:
+                raise ValueError(f"Unsupported type {type(voxelization_data)} for voxelization_data")
             
-            if not file_path.lower().endswith('.stl'):
-                raise ValueError("Only STL files are supported")
+            # make request
+            response = self._make_request("POST", '/get-visualization-data', files=files)
 
-            # Prepare form data
+            # collect result
+            if response.json().get("success", False):
+                data = response.json()
+                results = {}
+                results['cell_size'] = np.array(data['cell_size'])
+                results['cell_centers'] = np.array(data['cell_centers'])
+                results['rotation_matrix'] = np.array(data['rotation_matrix'])
+                results['rotation_point'] = np.array(data['rotation_point'])
+                return results
+            else:
+                if self.debug:
+                    print(f"Error calling /get-visualization-data:")
+                    print(f"   Error: {response.headers.get("error")}")
+                    print(f"   Traceback: {response.headers.get("traceback")}")
+                return None
+        except Exception as e:
+            raise e
+        finally:
+            if temp_file is not None:
+                temp_file.close()
+                os.remove(temp_file.name)
+
+    def generate_mesh(
+            self,
+            voxelization_data: bytes | str | Path, 
+            cell_type: str,
+            beam_diameter: float,
+            clear_direction: str,
+            conformal: bool,
+        ) -> trimesh.Trimesh:
+        """Generate optimized mesh
+
+        Args:
+            voxelization_data (bytes | str | Path): raw bytes or path to saved voxelization packing data
+            cell_type (str): type of unit cell. Choose 'bcc', 'fcc', or 'fluorite'
+            beam_diameter (float): diameter of the unit cell beam, mm
+            clear_direction (str): direction to remove regions of skin for unpacking purposes. Choose 'x' or 'y' or None
+            conformal (bool): Whether partial unit cells are allowed to be generated
+
+        Returns:
+            trimesh.Trimesh: surface mesh of optimized part
+        """
+        temp_file = None
+        try:
+            # prepare files
+            files = {}
+            if isinstance(voxelization_data, bytes):
+                temp_file = NamedTemporaryFile(delete_on_close=False, delete=False, suffix=".vox")
+                temp_file.write(voxelization_data)
+                temp_file.seek(0)
+                files['voxelization_results.vox'] = (os.path.basename(temp_file.file.name), temp_file, 'application/octet-stream')
+            elif isinstance(voxelization_data, Path) or isinstance(voxelization_data, str):
+                temp_file = open(voxelization_data, 'rb')
+                files['voxelization_results.vox'] = (os.path.basename(voxelization_data), temp_file, 'application/octet-stream')
+            else:
+                raise ValueError(f"Unsupported type {type(voxelization_data)} for voxelization_data")
+            
+            # prepare data
             data = {
-                'cell_type': cell_type,
-                'cell_size': f"{cell_size[0]},{cell_size[1]},{cell_size[2]}",
-                'beam_diameter': str(beam_diameter),
-                'force_dir': f"{force_dir[0]},{force_dir[1]},{force_dir[2]}",
-                'min_skin_thickness': str(min_skin_thickness),
-                'offsets': json.dumps(offsets.tolist() if hasattr(offsets, 'tolist') else offsets),
-                'cell_centers': json.dumps(cell_centers.tolist() if hasattr(cell_centers, 'tolist') else cell_centers),
-                'zero_thickness_dir': zero_thickness_dir,
-                'device': device,
+                "cell_type": cell_type,
+                "beam_diameter": beam_diameter,
+                "conformal": conformal,
             }
+            if clear_direction is not None:
+                data["clear_direction"] = clear_direction
 
-            # Upload and process the file
-            with open(file_path, 'rb') as f:
-                files = {'file': (os.path.basename(file_path), f, 'application/octet-stream')}
-                response = self.session.request('POST', f"{self.api_url}/voxelize", files=files, data=data)
-            
-            if response.headers.get('success'):
+            # make request
+            response = self._make_request("POST", "/generate-mesh", files=files, data=data)
+
+            # collect result
+            if response.headers.get("success", False):
                 buf = bytearray()
                 for chunk in response.iter_content(chunk_size=64 * 1024):
-                    if chunk:  # filter out keep-alive chunks
+                    if chunk:
                         buf.extend(chunk)
-
-                # 3. Deserialize back into two arrays
-                arr1, arr2 = pickle.loads(buf)
-                trimesh.Trimesh(arr1, arr2).export(network_path)
-                return network_path
-            print(response.headers)
-            raise ValueError(response.headers.get('error', 'Unknown error occurred'))
-
+                with np.load(io.BytesIO(bytes(buf))) as mesh_data:
+                    voxelized_mesh = trimesh.Trimesh(mesh_data["part_verts"], mesh_data["part_tris"])
+                return voxelized_mesh
+            else:
+                if self.debug:
+                    print(f"Error calling /generate-mesh:")
+                    print(f"   Error: {response.headers.get("error")}")
+                    print(f"   Traceback: {response.headers.get("traceback")}")
+                return None
         except Exception as e:
-            print(f"Error during voxelization: {str(e)}")
-            raise
-
-    def get_mesh_voxels(
-            self,
-            file_path: str,
-            cell_size: tuple = (40, 40, 40),
-            min_skin_thickness: float = 0.01,
-            sampling_res: tuple = (1, 1, 1),
-            force_dir: tuple = (0, 0, 1),
-        ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        Get voxels data from a mesh file using the specified parameters.
-        
-        Args:
-            file_path: Path to the input STL file
-            cell_size: Size of the cells in mm (tuple of x,y,z values)
-            min_skin_thickness: Minimum skin thickness in mm
-            sampling_res: Sampling resolution in xyz directions
-            force_dir: Force direction vector for unit cell orientation
-            
-        Returns:
-            tuple containing (location_table, offsets, cell_centers)
-        """
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
-        
-        if not file_path.lower().endswith('.stl'):
-            raise ValueError("Only STL files are supported")
-        
-        with open(file_path, 'rb') as f:
-            files = {'file': (os.path.basename(file_path), f, 'application/octet-stream')}
-            
-            data = {
-                'cell_size': f"{cell_size[0]},{cell_size[1]},{cell_size[2]}",
-                'min_skin_thickness': str(min_skin_thickness),
-                'sampling_res': f"{sampling_res[0]},{sampling_res[1]},{sampling_res[2]}",
-                'force_dir': f"{force_dir[0]},{force_dir[1]},{force_dir[2]}"
-            }
-            
-            response = self._make_request('POST', 'get-mesh-voxels', files=files, data=data)
-            
-            if response.get('success'):
-                result = response['result']
-                return (
-                    np.array(result['location_table']),
-                    np.array(result['offsets']),
-                    np.array(result['cell_centers'])
-                )
-            raise ValueError(response.get('error', 'Unknown error occurred'))
+            raise e
+        finally:
+            if temp_file is not None:
+                temp_file.close()
+                os.remove(temp_file.name)
          
     def mesh_center(self, file_path: str) -> np.ndarray:
         """
@@ -184,104 +262,49 @@ class VixivClient:
             raise ValueError("Only STL files are supported")
         
         return trimesh.load_mesh(file_path).center_mass
-        
-    def get_voxel_centers(
-            self,
-            cell_centers: list[tuple[float]],
-            force_dir: tuple = (0, 0, 1),
-            rotation_point: list[float]=(0, 0, 0),
-        ) -> tuple[np.ndarray, float]:
-        """Rotates all cell centers about the rotation point
+
+    def cell_volume(self, cell_type: str, beam_radius: float, cell_size: float | list[float]) -> float:
+        """Calculate the volume of a unit cell with the given dimensions
 
         Args:
-            cell_centers (list[tuple[float]]): center positions of unit cells
-            force_dir (list[float]): direction of the applied force
-            rotation_point (list[float]): point to rotate cell centers about
+            cell_type (str): type of unit cell. Choose 'bcc', 'fcc', or 'fluorite'
+            beam_radius (float): radius of the cell beams in mm
+            cell_size (float | list[float]): dimensions of the cell in mm
 
         Returns:
-            np.ndarray: rotated cell centers
-            float: angle of rotation
+            float: volume of the cell, in mm^3
         """
-        data = {
-            'cell_centers': cell_centers.tolist() if isinstance(cell_centers, np.ndarray) else cell_centers,
-            'force_dir': list(force_dir),
-            'rotation_point': rotation_point.tolist() if isinstance(rotation_point, np.ndarray) else rotation_point
-        }
-        
-        response = self._make_request('POST', 'get-voxel-centers', json=data)
-        
-        if response.get('success'):
-            result = response['result']
-            return (
-                np.array(result['centers']),
-                float(result['angle'])
-            )
-        raise ValueError(response.get('error', 'Unknown error occurred'))
-
-    def generate_shader(
-            self, 
-            cell_type: str, 
-            cell_size: tuple[float, float, float], 
-            beam_diameter: float,
-            cell_centers: np.ndarray, 
-            shader_path: str, 
-            view_normals: bool = False, 
-            aa_passes: int = 0, 
-            angle: float = 0.0,
-            rotation_point: tuple[float]=(0, 0, 0),
-            force_dir: tuple[float]=(0, 0, 1),
-        ) -> None:
-        """Generate a OpenGL shader to visualize voxel arrangement in real time.
-
-        Args:
-            cell_type (str): cell type, either 'fcc', 'bcc', or 'flourite'
-            cell_size (tuple[float]): dimensions of unit cell
-            beam_diameter (float): diameter of cell beam
-            positions (tuple[tuple[float]]): list of 3d coordinates defining center positions of voxel cells
-            out_path (str): path to save shader output
-            view_normals (bool, optional): View normals of surface, instead of smooth shading. Defaults to False.
-            aa_passes (int, optional): number of anti-aliasing passes when rendering a frame. Defaults to 0.
-        """
-        # Prepare request data
-        data = {
-            'cell_type': cell_type,
-            'cell_size': cell_size,
-            'beam_diameter': beam_diameter,
-            'cell_centers': cell_centers.tolist(),
-            'view_normals': view_normals,
-            'aa_passes': aa_passes,
-            'angle': angle,
-            'rotation_point': rotation_point,
-            'force_dir': force_dir,
-        }
-
-        # Create directory if it doesn't exist
-        shader_dir = os.path.dirname(shader_path)
-        if shader_dir:
-            os.makedirs(shader_dir, exist_ok=True)
-
-        # Make request
-        response = self._make_request('POST', 'generate-shader', json=data)
-
-        # Save shader content to file
-        with open(shader_path, 'w') as f:
-            f.write(response['shader_content'])
-
-    def cell_volume(self, cell_type: str, beam_radius: float, cell_size: tuple[float, float, float]) -> float:
+        cell_size = [cell_size] * 3 if isinstance(cell_size, float | int) else cell_size
         data = {
             'cell_type': cell_type,
             'beam_radius': beam_radius,
-            'cell_size': cell_size,
+            'cell_size': ",".join([str(i) for i in cell_size]),
         }
-        response = self._make_request('POST', 'cell_volume', json=data)
-        if response.get('success'):
-            return response.get('volume')
-        raise ValueError(response.get('error', 'Unknown error occurred'))
+        response = self._make_request('POST', '/cell-volume', data=data)
+        if response.json().get('success', False):
+            return response.json().get('volume')
+        raise ValueError(response.headers.get('error', 'Unknown error occurred'))
    
-    def get_status(self) -> dict:
-        """Get the current status of the API.
+    def get_packing_status(self) -> dict:
+        """Get the current status of the packing API.
         
         Returns:
             dict: API status information including rate limiting and state management status
         """
-        return self._make_request('GET', 'status')
+        return self._make_request('GET', '/packing-api-status').json()
+    
+    def get_meshing_status(self) -> dict:
+        """Get the current status of the meshing API.
+        
+        Returns:
+            dict: API status information including rate limiting and state management status
+        """
+        return self._make_request('GET', '/meshing-api-status').json()
+    
+    def get_meshing_accelerators(self) -> dict:
+        """Get recognized acceleration devices for the meshing API.
+        
+        Returns:
+            dict: API accelerator status and availible devices, including their hardware specifications
+        """
+        return self._make_request('GET', '/accelerators').json()

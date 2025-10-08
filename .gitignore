@@ -1,8 +1,12 @@
 mesh
 __pycache__
 *.glsl
+*.stl
 concurrent_requests.py
 workflow.py
 build
 dist
 VixivClient.egg-info
+complete_client_test.py
+meshing_client_test.py
+packing_client_test.py
