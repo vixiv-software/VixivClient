@@ -110,7 +110,7 @@ class VixivClient:
         files = {}
         with open(mesh_path, 'rb') as f:
             files['input_mesh.stl'] = (os.path.basename(mesh_path), f, 'application/octet-stream')
-            response = self._make_request("POST", '/pack-voxels', files=files, data=data, timeout=30)
+            response = self._make_request("POST", '/pack-voxels', files=files, data=data)
 
         # stream result
         if response.headers.get('success', False):
@@ -162,6 +162,7 @@ class VixivClient:
                 results['cell_centers'] = np.array(data['cell_centers'])
                 results['rotation_matrix'] = np.array(data['rotation_matrix'])
                 results['rotation_point'] = np.array(data['rotation_point'])
+                results['location_table'] = np.array(data['location_table'])
                 return results
             else:
                 if self.debug:
