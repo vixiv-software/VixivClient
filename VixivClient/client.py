@@ -15,14 +15,14 @@ class VixivClient:
     packing_endpoints = ['/pack-voxels', '/get-visualization-data', '/cell-volume', '/packing-api-status']
     meshing_endpoints = ['/meshing-api-status', '/accelerators', '/generate-mesh']
     
-    def __init__(self, api_key: str=None, packing_api_url: str=None, meshing_api_url: str=None, id: int=-1, debug=False):
+    def __init__(self, api_key: str=None, packing_api_url: str=None, meshing_api_url: str=None, id: str="anon", debug=False):
         """Initialize the client with API key and URLs.
         
         Args:
             api_key (str, optional): API key for authentication. If not provided, will look for VIXIV_API_KEY environment variable
             packing_api_url (str, optional): API url for packing. If not specified cannot use packing functionality.
             meshing_api_url (str, optional): API url for meshing. If not specified cannot use meshing functionality.
-            id (int, optional): Unique user ID. Defaults to -1 (anonymous)
+            id (str, optional): Unique user ID. Defaults to 'anon'
             debug (bool, optional). Whether to make verbose API calls. Defaults to False.
         """
         self.id = id
