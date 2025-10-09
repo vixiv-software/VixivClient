@@ -15,13 +15,15 @@ class VixivClient:
     packing_endpoints = ['/pack-voxels', '/get-visualization-data', '/cell-volume', '/packing-api-status']
     meshing_endpoints = ['/meshing-api-status', '/accelerators', '/generate-mesh']
     
-    def __init__(self, api_key=None, packing_api_url=None, meshing_api_url=None, id=None, debug=False):
-        """Initialize the client with API key and URL.
+    def __init__(self, api_key: str=None, packing_api_url: str=None, meshing_api_url: str=None, id: int=-1, debug=False):
+        """Initialize the client with API key and URLs.
         
         Args:
             api_key (str, optional): API key for authentication. If not provided, will look for VIXIV_API_KEY environment variable
-            api_url (str, optional): Base URL of the API. If not provided, will look for VIXIV_API_URL environment variable
-            base_url (str, optional): Alias for api_url, maintained for backward compatibility
+            packing_api_url (str, optional): API url for packing. If not specified cannot use packing functionality.
+            meshing_api_url (str, optional): API url for meshing. If not specified cannot use meshing functionality.
+            id (int, optional): Unique user ID. Defaults to -1 (anonymous)
+            debug (bool, optional). Whether to make verbose API calls. Defaults to False.
         """
         self.id = id
         self.api_key = api_key or os.getenv('VIXIV_API_KEY')
@@ -33,7 +35,7 @@ class VixivClient:
         self.packing_api_url = "" if packing_api_url is None else packing_api_url + "/api/v1"
         self.meshing_api_url = "" if meshing_api_url is None else meshing_api_url + "/api/v1"
         self.session = requests.Session()
-        self.session.headers.update({'X-API-Key': self.api_key})
+        self.session.headers.update({'X-API-Key': self.api_key, "id": self.id})
    
     def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """Make a request to the API."""
@@ -93,7 +95,7 @@ class VixivClient:
             network_direction (tuple[float]): which direction the voxel's local up direction should align with
 
         Returns:
-            bytes: voxelization results. Reccomended file extension to save is '.vox'
+            bytes: voxelization results. Recommended file extension to save is '.vox'
         """
         if isinstance(mesh_path, str):
             mesh_path = Path(mesh_path)
@@ -130,7 +132,7 @@ class VixivClient:
         """Collect visualization info needed to display solution on frontend
 
         Args:
-            voxelization_data (bytes | Path): data recieved from pack_voxels method, either raw or filepath
+            voxelization_data (bytes | str | Path): data recieved from pack_voxels method, either raw or filepath
 
         Returns:
             dict[str, np.ndarray]: 'cell_size': (3,) array, 'cell_centers': (N, 3) array, 
@@ -162,7 +164,6 @@ class VixivClient:
                 results['cell_centers'] = np.array(data['cell_centers'])
                 results['rotation_matrix'] = np.array(data['rotation_matrix'])
                 results['rotation_point'] = np.array(data['rotation_point'])
-                results['location_table'] = np.array(data['location_table'])
                 return results
             else:
                 if self.debug:
