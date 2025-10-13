@@ -165,7 +165,9 @@ class VixivClient:
                 results['cell_centers'] = np.array(data['cell_centers'])
                 results['rotation_matrix'] = np.array(data['rotation_matrix'])
                 results['rotation_point'] = np.array(data['rotation_point'])
-                full_arr = np.concat([np.array(data['candidate_centers']), results['cell_centers']], axis=0)
+                all_centers = np.array(data['candidate_centers'])
+                all_rotated_centers = (all_centers - results['rotation_point']) @ results['rotation_matrix'].T
+                full_arr = np.concat([all_rotated_centers + results['rotation_point'], results['cell_centers']], axis=0)
                 results['partial_centers'] = np.unique(full_arr, axis=0)
                 return results
             else:
