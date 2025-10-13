@@ -129,13 +129,14 @@ class VixivClient:
             return None
         
     def get_visualization_data(self, voxelization_data: bytes | str | Path) -> dict[str, np.ndarray]:
-        """Collect visualization info needed to display solution on frontend
+        """Collect visualization info needed to display solution on frontend. Partial centers contains 
+            cells that could potentially be partial, but could lay totally outside geometry.
 
         Args:
             voxelization_data (bytes | str | Path): data recieved from pack_voxels method, either raw or filepath
 
         Returns:
-            dict[str, np.ndarray]: 'cell_size': (3,) array, 'cell_centers': (N, 3) array, 
+            dict[str, np.ndarray]: 'cell_size': (3,) array, 'cell_centers': (N, 3) array, 'partial_centers': (M, 3) array, 
                 'rotation_matrix': (3, 3) array, 'rotation_point': (3,) array
         """
         temp_file = None
@@ -164,6 +165,8 @@ class VixivClient:
                 results['cell_centers'] = np.array(data['cell_centers'])
                 results['rotation_matrix'] = np.array(data['rotation_matrix'])
                 results['rotation_point'] = np.array(data['rotation_point'])
+                full_arr = np.concat([np.array(data['candidate_centers']), results['cell_centers']], axis=0)
+                results['partial_centers'] = np.unique(full_arr, axis=0)
                 return results
             else:
                 if self.debug:
