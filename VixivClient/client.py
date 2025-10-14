@@ -187,7 +187,7 @@ class VixivClient:
                 if isinstance(voxelization_data, bytes):
                     temp_file = NamedTemporaryFile(delete_on_close=False, delete=False, suffix=".vox")
                     temp_file.write(voxelization_data)
-                    temp_file.seek(0)
+                    temp_file.close()
                     url = self.upload_file_to_bucket(temp_file.name)
                 elif isinstance(voxelization_data, Path) or isinstance(voxelization_data, str):
                     url = self.upload_file_to_bucket(voxelization_data)
@@ -269,10 +269,11 @@ class VixivClient:
 
             if self._has_bucket_privileges() and self.use_bucket:
                 if isinstance(voxelization_data, bytes):
-                    with NamedTemporaryFile(delete_on_close=True, suffix=".vox") as f:
-                        f.write(voxelization_data)
-                        f.seek(0)
-                        url = self.upload_file_to_bucket(f.name)
+                    temp_file = NamedTemporaryFile(delete_on_close=False, delete=False, suffix=".vox")
+                    temp_file.write(voxelization_data)
+                    temp_file.close()
+                    url = self.upload_file_to_bucket(temp_file.name)
+                    data["results_url"] = url
                 elif isinstance(voxelization_data, Path) or isinstance(voxelization_data, str):
                     url = self.upload_file_to_bucket(voxelization_data)
                     data["results_url"] = url
