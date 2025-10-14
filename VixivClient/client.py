@@ -166,8 +166,8 @@ class VixivClient:
         else:
             if self.debug:
                 print(f"Error calling /pack-voxels:")
-                print(f"   Error: {response.headers.get("error")}")
-                print(f"   Traceback: {response.headers.get("traceback")}")
+                print(f"   Error: {response.headers.get('error')}")
+                print(f"   Traceback: {response.headers.get('traceback')}")
             return None
         
     def get_visualization_data(self, voxelization_data: bytes | str | Path) -> dict[str, np.ndarray]:
@@ -226,8 +226,8 @@ class VixivClient:
             else:
                 if self.debug:
                     print(f"Error calling /get-visualization-data:")
-                    print(f"   Error: {response.headers.get("error")}")
-                    print(f"   Traceback: {response.headers.get("traceback")}")
+                    print(f"   Error: {response.headers.get('error')}")
+                    print(f"   Traceback: {response.headers.get('traceback')}")
                 return None
         except Exception as e:
             raise e
@@ -303,8 +303,8 @@ class VixivClient:
             else:
                 if self.debug:
                     print(f"Error calling /generate-mesh:")
-                    print(f"   Error: {response.headers.get("error")}")
-                    print(f"   Traceback: {response.headers.get("traceback")}")
+                    print(f"   Error: {response.headers.get('error')}")
+                    print(f"   Traceback: {response.headers.get('traceback')}")
                 return None
         except Exception as e:
             raise e
