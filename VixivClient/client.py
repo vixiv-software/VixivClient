@@ -8,14 +8,19 @@ import io
 from uuid import uuid4
 from tempfile import NamedTemporaryFile
 import traceback
+from google.cloud import storage
+from google.auth import credentials
 
 class VixivClient:
     """Python client for the Vixiv API."""
 
     packing_endpoints = ['/pack-voxels', '/get-visualization-data', '/cell-volume', '/packing-api-status']
     meshing_endpoints = ['/meshing-api-status', '/accelerators', '/generate-mesh']
+    bucket_name = "geometry-backend-temp-uploads"
+    upload_dir = "incoming"
+    upload_chunk_size = 8 * 1024 * 1024     # must be multiple of 256 kb
     
-    def __init__(self, api_key: str=None, packing_api_url: str=None, meshing_api_url: str=None, id: str="anon", debug=False):
+    def __init__(self, api_key: str=None, packing_api_url: str=None, meshing_api_url: str=None, id: str="anon", gcloud_creds: credentials.Credentials=None, use_bucket: bool=True, debug=False):
         """Initialize the client with API key and URLs.
         
         Args:
@@ -23,6 +28,8 @@ class VixivClient:
             packing_api_url (str, optional): API url for packing. If not specified cannot use packing functionality.
             meshing_api_url (str, optional): API url for meshing. If not specified cannot use meshing functionality.
             id (str, optional): Unique user ID. Defaults to 'anon'
+            gcloud_creds (credentials.Credentials, optional): OAuth credentials to access GCS, if not provided uses env. Defaults to None.
+            use_bucket (bool, optional): Whether to upload files to bucket to perform request, only False for testing backwards compatability. Defaults to True.
             debug (bool, optional). Whether to make verbose API calls. Defaults to False.
         """
         self.id = id
@@ -31,11 +38,13 @@ class VixivClient:
         if not self.api_key:
             raise ValueError("API key must be provided either directly or through VIXIV_API_KEY environment variable")
         
-        # Handle both api_url and base_url for backward compatibility
         self.packing_api_url = "" if packing_api_url is None else packing_api_url + "/api/v1"
         self.meshing_api_url = "" if meshing_api_url is None else meshing_api_url + "/api/v1"
         self.session = requests.Session()
         self.session.headers.update({'X-API-Key': self.api_key, "id": self.id})
+        if not isinstance(gcloud_creds, credentials.Credentials): gcloud_creds = None
+        self.bucket = storage.Client(credentials=gcloud_creds).bucket(self.bucket_name)
+        self.use_bucket = use_bucket
    
     def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
         """Make a request to the API."""
@@ -79,6 +88,35 @@ class VixivClient:
             print(f"Response traceback: {response.json()['traceback']}")
             raise
 
+    def _has_bucket_privileges(self) -> bool:
+        """Check whether this client has permission to upload files to gcs bucket.
+
+        Returns:
+            bool: True if the client has permission, otherwise False.
+        """
+        roles = ["storage.objects.create"]
+        granted = self.bucket.test_iam_permissions(roles)
+        for role in roles:
+            if role not in granted:
+                return False
+        return True
+
+    def upload_file_to_bucket(self, local_path: str | Path) -> str:
+        """Upload a file to GCP bucket. Deletion is handled on the 
+        google service consuming this resource, or lifecycle rule on bucket
+
+        Args:
+            local_path (str | Path): local file to upload
+
+        Returns:
+            str: link to bucket
+        """
+        upload_name = f"{uuid4()}{Path(local_path).suffix}"
+        upload_path = f"{self.upload_dir}/{upload_name}"
+        blob = self.bucket.blob(upload_path)
+        blob.upload_from_filename(str(local_path), content_type="application/octet-stream")
+        return f"gs://{self.bucket_name}/{upload_path}"
+
     def pack_voxels(
             self,
             mesh_path: str | Path,
@@ -108,11 +146,15 @@ class VixivClient:
             'network_direction': ",".join([str(i) for i in network_direction]),
         }
 
-        # prepare files and make request
-        files = {}
-        with open(mesh_path, 'rb') as f:
-            files['input_mesh.stl'] = (os.path.basename(mesh_path), f, 'application/octet-stream')
-            response = self._make_request("POST", '/pack-voxels', files=files, data=data)
+        if self._has_bucket_privileges() and self.use_bucket:
+            data['mesh_url'] = self.upload_file_to_bucket(mesh_path)
+            response = self._make_request("POST", '/pack-voxels', data=data)
+            print("Here!")
+        else:
+            files = {}
+            with open(mesh_path, 'rb') as f:
+                files['input_mesh.stl'] = (os.path.basename(mesh_path), f, 'application/octet-stream')
+                response = self._make_request("POST", '/pack-voxels', files=files, data=data)
 
         # stream result
         if response.headers.get('success', False):
@@ -141,35 +183,46 @@ class VixivClient:
         """
         temp_file = None
         try:
-            # prepare files
-            files = {}
-            if isinstance(voxelization_data, bytes):
-                temp_file = NamedTemporaryFile(delete_on_close=False, delete=False, suffix=".vox")
-                temp_file.write(voxelization_data)
-                temp_file.seek(0)
-                files['voxelization_results.vox'] = (os.path.basename(temp_file.file.name), temp_file, 'application/octet-stream')
-            elif isinstance(voxelization_data, Path) or isinstance(voxelization_data, str):
-                temp_file = open(voxelization_data, 'rb')
-                files['voxelization_results.vox'] = (os.path.basename(voxelization_data), temp_file, 'application/octet-stream')
+            if self._has_bucket_privileges() and self.use_bucket:
+                if isinstance(voxelization_data, bytes):
+                    temp_file = NamedTemporaryFile(delete_on_close=False, delete=False, suffix=".vox")
+                    temp_file.write(voxelization_data)
+                    temp_file.seek(0)
+                    url = self.upload_file_to_bucket(temp_file.name)
+                elif isinstance(voxelization_data, Path) or isinstance(voxelization_data, str):
+                    url = self.upload_file_to_bucket(voxelization_data)
+                response = self._make_request("POST", '/get-visualization-data', data={"results_url": url})
             else:
-                raise ValueError(f"Unsupported type {type(voxelization_data)} for voxelization_data")
-            
-            # make request
-            response = self._make_request("POST", '/get-visualization-data', files=files)
+                files = {}
+                if isinstance(voxelization_data, bytes):
+                    temp_file = NamedTemporaryFile(delete_on_close=False, delete=False, suffix=".vox")
+                    temp_file.write(voxelization_data)
+                    temp_file.seek(0)
+                    files['voxelization_results.vox'] = (os.path.basename(temp_file.file.name), temp_file, 'application/octet-stream')
+                elif isinstance(voxelization_data, Path) or isinstance(voxelization_data, str):
+                    temp_file = open(voxelization_data, 'rb')
+                    files['voxelization_results.vox'] = (os.path.basename(voxelization_data), temp_file, 'application/octet-stream')
+                else:
+                    raise ValueError(f"Unsupported type {type(voxelization_data)} for voxelization_data")
+                response = self._make_request("POST", '/get-visualization-data', files=files)
 
             # collect result
-            if response.json().get("success", False):
-                data = response.json()
+            if response.headers.get("success", False):
                 results = {}
-                results['cell_size'] = np.array(data['cell_size'])
-                results['cell_centers'] = np.array(data['cell_centers'])
-                results['rotation_matrix'] = np.array(data['rotation_matrix'])
-                results['rotation_point'] = np.array(data['rotation_point'])
-                all_centers = np.array(data['candidate_centers'])
-                all_rotated_centers = (all_centers - results['rotation_point']) @ results['rotation_matrix'].T
-                full_arr = np.concat([all_rotated_centers + results['rotation_point'], results['cell_centers']], axis=0)
-                results['partial_centers'] = np.unique(full_arr, axis=0)
-                return results
+                buf = bytearray()
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if chunk:
+                        buf.extend(chunk)
+                with np.load(io.BytesIO(bytes(buf))) as data:
+                    results['cell_size'] = data['cell_size']
+                    results['cell_centers'] = data['cell_centers']
+                    results['rotation_matrix'] = data['rotation_matrix']
+                    results['rotation_point'] = data['rotation_point']
+                    all_centers = data['candidate_centers']
+                    all_rotated_centers = (all_centers - results['rotation_point']) @ results['rotation_matrix'].T
+                    full_arr = np.concat([all_rotated_centers + results['rotation_point'], results['cell_centers']], axis=0)
+                    results['partial_centers'] = np.unique(full_arr, axis=0)
+                    return results
             else:
                 if self.debug:
                     print(f"Error calling /get-visualization-data:")
@@ -205,19 +258,6 @@ class VixivClient:
         """
         temp_file = None
         try:
-            # prepare files
-            files = {}
-            if isinstance(voxelization_data, bytes):
-                temp_file = NamedTemporaryFile(delete_on_close=False, delete=False, suffix=".vox")
-                temp_file.write(voxelization_data)
-                temp_file.seek(0)
-                files['voxelization_results.vox'] = (os.path.basename(temp_file.file.name), temp_file, 'application/octet-stream')
-            elif isinstance(voxelization_data, Path) or isinstance(voxelization_data, str):
-                temp_file = open(voxelization_data, 'rb')
-                files['voxelization_results.vox'] = (os.path.basename(voxelization_data), temp_file, 'application/octet-stream')
-            else:
-                raise ValueError(f"Unsupported type {type(voxelization_data)} for voxelization_data")
-            
             # prepare data
             data = {
                 "cell_type": cell_type,
@@ -227,8 +267,29 @@ class VixivClient:
             if clear_direction is not None:
                 data["clear_direction"] = clear_direction
 
-            # make request
-            response = self._make_request("POST", "/generate-mesh", files=files, data=data)
+            if self._has_bucket_privileges() and self.use_bucket:
+                if isinstance(voxelization_data, bytes):
+                    with NamedTemporaryFile(delete_on_close=True, suffix=".vox") as f:
+                        f.write(voxelization_data)
+                        f.seek(0)
+                        url = self.upload_file_to_bucket(f.name)
+                elif isinstance(voxelization_data, Path) or isinstance(voxelization_data, str):
+                    url = self.upload_file_to_bucket(voxelization_data)
+                    data["results_url"] = url
+                response = self._make_request("POST", "/generate-mesh", data=data)
+            else:
+                files = {}
+                if isinstance(voxelization_data, bytes):
+                    temp_file = NamedTemporaryFile(delete_on_close=False, delete=False, suffix=".vox")
+                    temp_file.write(voxelization_data)
+                    temp_file.seek(0)
+                    files['voxelization_results.vox'] = (os.path.basename(temp_file.file.name), temp_file, 'application/octet-stream')
+                elif isinstance(voxelization_data, Path) or isinstance(voxelization_data, str):
+                    temp_file = open(voxelization_data, 'rb')
+                    files['voxelization_results.vox'] = (os.path.basename(voxelization_data), temp_file, 'application/octet-stream')
+                else:
+                    raise ValueError(f"Unsupported type {type(voxelization_data)} for voxelization_data")
+                response = self._make_request("POST", "/generate-mesh", files=files, data=data)
 
             # collect result
             if response.headers.get("success", False):
