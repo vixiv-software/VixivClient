@@ -149,7 +149,6 @@ class VixivClient:
         if self._has_bucket_privileges() and self.use_bucket:
             data['mesh_url'] = self.upload_file_to_bucket(mesh_path)
             response = self._make_request("POST", '/pack-voxels', data=data)
-            print("Here!")
         else:
             files = {}
             with open(mesh_path, 'rb') as f:
