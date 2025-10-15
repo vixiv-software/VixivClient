@@ -185,7 +185,7 @@ class VixivClient:
         try:
             if self._has_bucket_privileges() and self.use_bucket:
                 if isinstance(voxelization_data, bytes):
-                    temp_file = NamedTemporaryFile(delete_on_close=False, delete=False, suffix=".vox")
+                    temp_file = NamedTemporaryFile(delete=False, suffix=".vox")
                     temp_file.write(voxelization_data)
                     temp_file.close()
                     url = self.upload_file_to_bucket(temp_file.name)
@@ -195,7 +195,7 @@ class VixivClient:
             else:
                 files = {}
                 if isinstance(voxelization_data, bytes):
-                    temp_file = NamedTemporaryFile(delete_on_close=False, delete=False, suffix=".vox")
+                    temp_file = NamedTemporaryFile(delete=False, suffix=".vox")
                     temp_file.write(voxelization_data)
                     temp_file.seek(0)
                     files['voxelization_results.vox'] = (os.path.basename(temp_file.file.name), temp_file, 'application/octet-stream')
@@ -269,7 +269,7 @@ class VixivClient:
 
             if self._has_bucket_privileges() and self.use_bucket:
                 if isinstance(voxelization_data, bytes):
-                    temp_file = NamedTemporaryFile(delete_on_close=False, delete=False, suffix=".vox")
+                    temp_file = NamedTemporaryFile(delete=False, suffix=".vox")
                     temp_file.write(voxelization_data)
                     temp_file.close()
                     url = self.upload_file_to_bucket(temp_file.name)
@@ -281,7 +281,7 @@ class VixivClient:
             else:
                 files = {}
                 if isinstance(voxelization_data, bytes):
-                    temp_file = NamedTemporaryFile(delete_on_close=False, delete=False, suffix=".vox")
+                    temp_file = NamedTemporaryFile(delete=False, suffix=".vox")
                     temp_file.write(voxelization_data)
                     temp_file.seek(0)
                     files['voxelization_results.vox'] = (os.path.basename(temp_file.file.name), temp_file, 'application/octet-stream')
