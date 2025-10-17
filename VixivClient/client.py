@@ -175,12 +175,21 @@ class VixivClient:
                 print(f"   Traceback: {response.headers.get('traceback')}")
             return None
         
-    def get_visualization_data(self, voxelization_data: bytes | str | Path, user_id: int=-1, project_id: str="") -> dict[str, np.ndarray]:
+    def get_visualization_data(
+            self, 
+            voxelization_data: bytes | str | Path, 
+            cell_type: str, 
+            beam_thickness: float,
+            user_id: int=-1, 
+            project_id: str=""
+        ) -> dict[str, np.ndarray]:
         """Collect visualization info needed to display solution on frontend. Partial centers contains 
             cells that could potentially be partial, but could lay totally outside geometry.
 
         Args:
             voxelization_data (bytes | str | Path): data recieved from pack_voxels method, either raw or filepath
+            cell_type (str): type of unit cell. Choose 'bcc', 'fcc', or 'fluorite'
+            beam_thickness (float): diameter of the unit cell beam, mm
             user_id (int, optional): unique user ID to associate with this API call. Defaults to anonymous (-1)
             project_id (str, optional): user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 
@@ -190,7 +199,12 @@ class VixivClient:
         """
         temp_file = None
         try:
-            data = {'user_id': int(user_id), 'project_id': str(project_id)}
+            data = {                
+                'cell_type': cell_type,
+                'beam_thickness': beam_thickness,
+                'user_id': int(user_id), 
+                'project_id': str(project_id)
+            }
             if self._has_bucket_privileges() and self.use_bucket:
                 if isinstance(voxelization_data, bytes):
                     temp_file = NamedTemporaryFile(delete=False, suffix=".vox")

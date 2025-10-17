@@ -69,11 +69,13 @@ Arguments
 Returns
 - bytes: raw binary data of voxelization results. Save to disk using ".vox" suffix as best practice
 
-### `get_visualization_data(voxelization_data, user_id, project_id)`
+### `get_visualization_data(voxelization_data, cell_type, beam_thickness, user_id, project_id)`
 Get voxel placement data from the voxelization results binary file.
 
 Arguments
 - voxelization_data: bytes, str, or Path object containing data recieved from pack_voxels method, either raw (directly from `pack_voxels` method) or filepath
+- cell_type: str, type of unit cell. Choose 'bcc', 'fcc', or 'fluorite'
+- beam_thickness: float, diameter of the unit cell beam, mm
 - user_id: int, unique user ID to associate with this API call. Defaults to anonymous (-1)
 - project_id: str, user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 
