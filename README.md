@@ -55,7 +55,7 @@ mesh.export("completed_mesh.stl")
 
 ## Client Methods
 
-### `pack_voxels(mesh_path, cell_size, skin_thickness, network_direction)`
+### `pack_voxels(mesh_path, cell_size, skin_thickness, network_direction, user_id, project_id)`
 Calculate optimal placement of cells within the specified geometry.
 
 Arguments
@@ -63,15 +63,19 @@ Arguments
 - cell_size: float or tuple[float] specifying the size of the cells
 - skin_thickness: float specifying the desired minimum thickness between the outer skin of the input part and any placed cells
 - network_direction: tuple[float] detailing the z direction the unit cell local orientation should align with
+- user_id: int, unique user ID to associate with this API call. Defaults to anonymous (-1)
+- project_id: str, user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 
 Returns
 - bytes: raw binary data of voxelization results. Save to disk using ".vox" suffix as best practice
 
-### `get_visualization_data(voxelization_data)`
+### `get_visualization_data(voxelization_data, user_id, project_id)`
 Get voxel placement data from the voxelization results binary file.
 
 Arguments
 - voxelization_data: bytes, str, or Path object containing data recieved from pack_voxels method, either raw (directly from `pack_voxels` method) or filepath
+- user_id: int, unique user ID to associate with this API call. Defaults to anonymous (-1)
+- project_id: str, user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 
 Returns
 - dict[str, np.ndarray]: numpy arrays containing relevant data to visualize cells before meshing. Keys include:
@@ -81,7 +85,7 @@ Returns
     - 'rotation_matrix': (3, 3) array describing rotation from the global coordinate system to the local unit cell coordinate system
     - 'rotation_point': (3,) array describing the point at which the centers/input mesh should be rotated about (if desired)
 
-### `generate_mesh(voxelization_data, cell_type, beam_diameter, clear_direction, conformal)`
+### `generate_mesh(voxelization_data, cell_type, beam_diameter, clear_direction, conformal, user_id, project_id)`
 Generate the optimized part as a triangular surface mesh using precomputed packing data.
 
 Arguments:
@@ -90,6 +94,8 @@ Arguments:
 - beam_diameter: float, diameter of beam for unit cell
 - clear_direction: str, whether to allow for material unpacking automatically. Choose from 'x', 'y', or None to omit this process
 - conformal: bool, True to allow partial cells that conform to the geometry of the input part, False to only consider full cells
+- user_id: int, unique user ID to associate with this API call. Defaults to anonymous (-1)
+- project_id: str, user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 
 Returns:
 - trimesh.Trimesh: trimesh object containing the optimized part as a triangular surface mesh
@@ -103,13 +109,15 @@ Arguments:
 Returns:
 - np.ndarray: (3,) array, the center of mass
 
-### `cell_volume(cell_type, beam_radius, cell_size)`
+### `cell_volume(cell_type, beam_radius, cell_size, user_id, project_id)`
 Calculate the volume of a unit cell with the desired properties
 
 Arguments:
 - cell_type: str describing the desired cell to be placed at each voxel location. Choose from 'bcc', 'fcc', or 'fluorite'
 - beam_radius: float, radius of the beam for the unit cell
 - cell_size: float or list[float] describing the dimensions of the unit cell bounding box
+- user_id: int, unique user ID to associate with this API call. Defaults to anonymous (-1)
+- project_id: str, user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 
 Returns:
 -  float: volume of the unit cell

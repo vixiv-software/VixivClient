@@ -123,6 +123,8 @@ class VixivClient:
             cell_size: float | tuple[float], 
             skin_thickness: float, 
             network_direction: tuple[float],
+            user_id: int=-1, 
+            project_id: str="",
         ) -> bytes:
         """Find packing arrangements.
 
@@ -131,6 +133,8 @@ class VixivClient:
             cell_size (float | tuple[float]): size of the individual voxel
             skin_thickness (float): desired distance between outer geometry and packed voxels
             network_direction (tuple[float]): which direction the voxel's local up direction should align with
+            user_id (int, optional): unique user ID to associate with this API call. Defaults to anonymous (-1)
+            project_id (str, optional): user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 
         Returns:
             bytes: voxelization results. Recommended file extension to save is '.vox'
@@ -144,6 +148,8 @@ class VixivClient:
             'cell_size': ",".join([str(i) for i in cell_size]),
             'skin_thickness': skin_thickness,
             'network_direction': ",".join([str(i) for i in network_direction]),
+            'user_id': int(user_id),
+            'project_id': str(project_id),
         }
 
         if self._has_bucket_privileges() and self.use_bucket:
@@ -169,12 +175,14 @@ class VixivClient:
                 print(f"   Traceback: {response.headers.get('traceback')}")
             return None
         
-    def get_visualization_data(self, voxelization_data: bytes | str | Path) -> dict[str, np.ndarray]:
+    def get_visualization_data(self, voxelization_data: bytes | str | Path, user_id: int=-1, project_id: str="") -> dict[str, np.ndarray]:
         """Collect visualization info needed to display solution on frontend. Partial centers contains 
             cells that could potentially be partial, but could lay totally outside geometry.
 
         Args:
             voxelization_data (bytes | str | Path): data recieved from pack_voxels method, either raw or filepath
+            user_id (int, optional): unique user ID to associate with this API call. Defaults to anonymous (-1)
+            project_id (str, optional): user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 
         Returns:
             dict[str, np.ndarray]: 'cell_size': (3,) array, 'cell_centers': (N, 3) array, 'partial_centers': (M, 3) array, 
@@ -182,6 +190,7 @@ class VixivClient:
         """
         temp_file = None
         try:
+            data = {'user_id': int(user_id), 'project_id': str(project_id)}
             if self._has_bucket_privileges() and self.use_bucket:
                 if isinstance(voxelization_data, bytes):
                     temp_file = NamedTemporaryFile(delete=False, suffix=".vox")
@@ -190,7 +199,8 @@ class VixivClient:
                     url = self.upload_file_to_bucket(temp_file.name)
                 elif isinstance(voxelization_data, Path) or isinstance(voxelization_data, str):
                     url = self.upload_file_to_bucket(voxelization_data)
-                response = self._make_request("POST", '/get-visualization-data', data={"results_url": url})
+                data['results_url'] = url
+                response = self._make_request("POST", '/get-visualization-data', data=data)
             else:
                 files = {}
                 if isinstance(voxelization_data, bytes):
@@ -203,7 +213,7 @@ class VixivClient:
                     files['voxelization_results.vox'] = (os.path.basename(voxelization_data), temp_file, 'application/octet-stream')
                 else:
                     raise ValueError(f"Unsupported type {type(voxelization_data)} for voxelization_data")
-                response = self._make_request("POST", '/get-visualization-data', files=files)
+                response = self._make_request("POST", '/get-visualization-data', files=files, data=data)
 
             # collect result
             if response.headers.get("success", False):
@@ -242,6 +252,8 @@ class VixivClient:
             beam_diameter: float,
             clear_direction: str,
             conformal: bool,
+            user_id: int=-1, 
+            project_id: str="",
         ) -> trimesh.Trimesh:
         """Generate optimized mesh
 
@@ -251,6 +263,8 @@ class VixivClient:
             beam_diameter (float): diameter of the unit cell beam, mm
             clear_direction (str): direction to remove regions of skin for unpacking purposes. Choose 'x' or 'y' or None
             conformal (bool): Whether partial unit cells are allowed to be generated
+            user_id (int, optional): unique user ID to associate with this API call. Defaults to anonymous (-1)
+            project_id (str, optional): user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 
         Returns:
             trimesh.Trimesh: surface mesh of optimized part
@@ -262,6 +276,8 @@ class VixivClient:
                 "cell_type": cell_type,
                 "beam_diameter": beam_diameter,
                 "conformal": conformal,
+                'user_id': int(user_id),
+                'project_id': str(project_id),
             }
             if clear_direction is not None:
                 data["clear_direction"] = clear_direction
@@ -331,13 +347,15 @@ class VixivClient:
         
         return trimesh.load_mesh(file_path).center_mass
 
-    def cell_volume(self, cell_type: str, beam_radius: float, cell_size: float | list[float]) -> float:
+    def cell_volume(self, cell_type: str, beam_radius: float, cell_size: float | list[float], user_id: int=-1, project_id: str="") -> float:
         """Calculate the volume of a unit cell with the given dimensions
 
         Args:
             cell_type (str): type of unit cell. Choose 'bcc', 'fcc', or 'fluorite'
             beam_radius (float): radius of the cell beams in mm
             cell_size (float | list[float]): dimensions of the cell in mm
+            user_id (int, optional): unique user ID to associate with this API call. Defaults to anonymous (-1)
+            project_id (str, optional): user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 
         Returns:
             float: volume of the cell, in mm^3
@@ -347,6 +365,8 @@ class VixivClient:
             'cell_type': cell_type,
             'beam_radius': beam_radius,
             'cell_size': ",".join([str(i) for i in cell_size]),
+            'user_id': int(user_id),
+            'project_id': str(project_id),
         }
         response = self._make_request('POST', '/cell-volume', data=data)
         if response.json().get('success', False):
