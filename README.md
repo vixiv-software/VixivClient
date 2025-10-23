@@ -55,7 +55,7 @@ mesh.export("completed_mesh.stl")
 
 ## Client Methods
 
-### `pack_voxels(mesh_path, cell_size, skin_thickness, network_direction, user_id, project_id)`
+### `pack_voxels(mesh_path, cell_size, skin_thickness, network_direction, seed_point, optimize_packing, user_id, project_id)`
 Calculate optimal placement of cells within the specified geometry.
 
 Arguments
@@ -63,6 +63,8 @@ Arguments
 - cell_size: float or tuple[float] specifying the size of the cells
 - skin_thickness: float specifying the desired minimum thickness between the outer skin of the input part and any placed cells
 - network_direction: tuple[float] detailing the z direction the unit cell local orientation should align with
+- seed_point: tuple[float], where to place voxel centerfor beginning of tiling for voxel packing. If None, infers best choice. Defaults to None.
+- optimize_packing: bool, whether to optimize voxel placement for the most number of voxels while preserving symmetry, otherwise uses seed point. Defaults to True.
 - user_id: int, unique user ID to associate with this API call. Defaults to anonymous (-1)
 - project_id: str, user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 

@@ -123,6 +123,8 @@ class VixivClient:
             cell_size: float | tuple[float], 
             skin_thickness: float, 
             network_direction: tuple[float],
+            seed_point: tuple[float]=None,
+            optimize_packing: bool=True,
             user_id: int=-1, 
             project_id: str="",
         ) -> bytes:
@@ -133,6 +135,8 @@ class VixivClient:
             cell_size (float | tuple[float]): size of the individual voxel
             skin_thickness (float): desired distance between outer geometry and packed voxels
             network_direction (tuple[float]): which direction the voxel's local up direction should align with
+            seed_point (tuple[float], optional): where to place voxel centerfor beginning of tiling for voxel packing. If None, infers best choice. Defaults to None.
+            optimize_packing (bool, optional): whether to optimize voxel placement for the most number of voxels while preserving symmetry, otherwise uses seed point. Defaults to True.
             user_id (int, optional): unique user ID to associate with this API call. Defaults to anonymous (-1)
             project_id (str, optional): user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 
@@ -148,9 +152,12 @@ class VixivClient:
             'cell_size': ",".join([str(i) for i in cell_size]),
             'skin_thickness': skin_thickness,
             'network_direction': ",".join([str(i) for i in network_direction]),
+            'objective': 'num' if optimize_packing else 'none',
             'user_id': int(user_id),
             'project_id': str(project_id),
         }
+        if seed_point is not None:
+            data['seed_point'] = ",".join([str(i) for i in network_direction])
 
         if self._has_bucket_privileges() and self.use_bucket:
             data['mesh_url'] = self.upload_file_to_bucket(mesh_path)
