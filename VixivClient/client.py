@@ -157,7 +157,7 @@ class VixivClient:
             'project_id': str(project_id),
         }
         if seed_point is not None:
-            data['seed_point'] = ",".join([str(i) for i in network_direction])
+            data['seed_point'] = ",".join([str(i) for i in seed_point])
 
         if self._has_bucket_privileges() and self.use_bucket:
             data['mesh_url'] = self.upload_file_to_bucket(mesh_path)
