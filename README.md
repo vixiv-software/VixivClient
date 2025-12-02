@@ -117,7 +117,7 @@ Returns:
 Calculate the volume of a unit cell with the desired properties
 
 Arguments:
-- cell_type: str describing the desired cell to be placed at each voxel location. Choose from 'bcc', 'fcc', or 'fluorite'
+- cell_type: str describing the desired cell to be placed at each voxel location. Choose from 'bcc', 'fcc', 'fluorite', or 'acs'
 - beam_radius: float, radius of the beam for the unit cell
 - cell_size: float or list[float] describing the dimensions of the unit cell bounding box
 - user_id: int, unique user ID to associate with this API call. Defaults to anonymous (-1)
