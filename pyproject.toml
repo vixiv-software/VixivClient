@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "VixivClient"
-version = "0.1.2"
+version = "0.1.15"
 description = "Interface to the Vixiv API"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,6 +15,7 @@ authors = [
 dependencies = [
     "trimesh>=4.6.9",
     "numpy>=2.2.6",
+    "google-cloud-storage",
 ]
 
 [tool.setuptools.packages.find]
