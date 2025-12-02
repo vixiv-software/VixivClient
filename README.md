@@ -5,7 +5,7 @@ Interact with Vixiv's core computational geometry toolkit.
 ## Installation
 
 ```bash
-pip install git+https://github.com/vixiv-software/VixivClient.git@2-gcloud-bucket-upload
+pip install git+https://github.com/vixiv-software/VixivClient.git
 ```
 
 ## Minimal Example
