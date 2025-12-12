@@ -11,6 +11,7 @@ import traceback
 from google.cloud import storage
 from google.auth import credentials
 
+
 class VixivClient:
     """Python client for the Vixiv API."""
 
@@ -125,7 +126,9 @@ class VixivClient:
             network_direction: tuple[float],
             seed_point: tuple[float]=None,
             optimize_packing: bool=True,
-            user_id: int=-1, 
+            avoid_regions: list[str | Path]=[],
+            invert_avoid: bool=False,
+            user_id: int=-1,
             project_id: str="",
         ) -> bytes:
         """Find packing arrangements.
@@ -137,6 +140,8 @@ class VixivClient:
             network_direction (tuple[float]): which direction the voxel's local up direction should align with
             seed_point (tuple[float], optional): where to place voxel centerfor beginning of tiling for voxel packing. If None, infers best choice. Defaults to None.
             optimize_packing (bool, optional): whether to optimize voxel placement for the most number of voxels while preserving symmetry, otherwise uses seed point. Defaults to True.
+            avoid_regions (list[str | Path], optional): surface meshes bounding regions to avoid placing any voxels. Defaults to an empty list.
+            invert_avoid (bool, optional): Whether to treat all avoid regions as enforce regions instead. Defaults to False.
             user_id (int, optional): unique user ID to associate with this API call. Defaults to anonymous (-1)
             project_id (str, optional): user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 
@@ -153,6 +158,7 @@ class VixivClient:
             'skin_thickness': skin_thickness,
             'network_direction': ",".join([str(i) for i in network_direction]),
             'objective': 'num' if optimize_packing else 'none',
+            'invert_avoid': invert_avoid,
             'user_id': int(user_id),
             'project_id': str(project_id),
         }
@@ -161,6 +167,9 @@ class VixivClient:
 
         if self._has_bucket_privileges() and self.use_bucket:
             data['mesh_url'] = self.upload_file_to_bucket(mesh_path)
+            data['avoid_urls'] = []
+            for avoid in avoid_regions:
+                data['avoid_urls'].append(self.upload_file_to_bucket(avoid))
             response = self._make_request("POST", '/pack-voxels', data=data)
         else:
             files = {}

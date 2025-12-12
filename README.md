@@ -55,7 +55,7 @@ mesh.export("completed_mesh.stl")
 
 ## Client Methods
 
-### `pack_voxels(mesh_path, cell_size, skin_thickness, network_direction, seed_point, optimize_packing, user_id, project_id)`
+### `pack_voxels(mesh_path, cell_size, skin_thickness, network_direction, seed_point, optimize_packing, avoid_regions, invert_avoid, user_id, project_id)`
 Calculate optimal placement of cells within the specified geometry.
 
 Arguments
@@ -65,6 +65,8 @@ Arguments
 - network_direction: tuple[float] detailing the z direction the unit cell local orientation should align with
 - seed_point: tuple[float], where to place voxel centerfor beginning of tiling for voxel packing. If None, infers best choice. Defaults to None.
 - optimize_packing: bool, whether to optimize voxel placement for the most number of voxels while preserving symmetry, otherwise uses seed point. Defaults to True.
+- avoid_regions: list[str | Path], surface meshes bounding regions to avoid placing any voxels. Defaults to an empty list.
+- invert_avoid: bool, Whether to treat all avoid regions as enforce regions instead. Defaults to False.
 - user_id: int, unique user ID to associate with this API call. Defaults to anonymous (-1)
 - project_id: str, user-scoped unique project identifer to associate with this API call. Defaults to no project ("")
 
