@@ -15,7 +15,7 @@ from google.auth import credentials
 class VixivClient:
     """Python client for the Vixiv API."""
 
-    packing_endpoints = ['/pack-voxels', '/get-visualization-data', '/cell-volume', '/packing-api-status']
+    packing_endpoints = ['/pack-voxels', '/get-visualization-data', '/cell-volume', '/packing-api-status', '/get-avoid-regions']
     meshing_endpoints = ['/meshing-api-status', '/accelerators', '/generate-mesh']
     bucket_name = "geometry-backend-temp-uploads"
     upload_dir = "incoming"
@@ -101,6 +101,37 @@ class VixivClient:
             if role not in granted:
                 return False
         return True
+    
+    def split_google_storage_url(self, url: str) -> tuple[str, str]:
+        """Split URL into bucket and filename.
+
+        Args:
+            url (str): google storage url
+
+        Returns:
+            tuple[str, str]: bucket, filename
+        """
+        assert url.startswith("gs://")
+        _, rest = url.split("gs://", 1)
+        bucket, obj = rest.split("/", 1)
+        return bucket, obj
+        
+    def download_from_bucket(self, url: str, delete: bool=True) -> tuple[bytes, int, int]:
+        """Download a resource from google cloud bucket.
+
+        Args:
+            url (str): url hosting resource
+            delete (bool, optional): Whether to delete the resource after reading. Defaults to True.
+
+        Returns:
+            bytes raw file binary
+        """
+        bucket_name, object_name = self.split_google_storage_url(url)
+        blob = self.bucket.blob(object_name)
+        data = blob.download_as_bytes()
+        if delete:
+            blob.delete()
+        return data
 
     def upload_file_to_bucket(self, local_path: str | Path) -> str:
         """Upload a file to GCP bucket. Deletion is handled on the 
@@ -274,6 +305,44 @@ class VixivClient:
             if temp_file is not None:
                 temp_file.close()
                 os.remove(temp_file.name)
+
+    def get_avoid_regions(self, voxelization_data: bytes | str | Path) -> list[trimesh.Trimesh]:
+        """Get a list of regions that are not allowed to have clear regions or any latticing
+
+        Args:
+            voxelization_data (bytes | str | Path): raw bytes or path to saved voxelization packing data
+
+        Returns:
+            list[trimesh.Trimesh]: list of surface mesh of avoid regions
+        """
+        try:
+            if self._has_bucket_privileges() and self.use_bucket:
+                if isinstance(voxelization_data, bytes):
+                    temp_file = NamedTemporaryFile(delete=False, suffix=".vox")
+                    temp_file.write(voxelization_data)
+                    temp_file.close()
+                    url = self.upload_file_to_bucket(temp_file.name)
+                elif isinstance(voxelization_data, Path) or isinstance(voxelization_data, str):
+                    url = self.upload_file_to_bucket(voxelization_data)
+                data = {'results_url': url}
+                response = self._make_request("POST", '/get-avoid-regions', data=data)
+                avoid_meshes = []
+                for url in response.json()["avoid_urls"]:
+                    b = self.download_from_bucket(url)
+                    with io.BytesIO() as f:
+                        f.write(b)
+                        f.seek(0)
+                        avoid_meshes.append(trimesh.load_mesh(f, file_type="stl"))
+                return avoid_meshes
+            raise ValueError("Requires access to gcp bucket")
+        except Exception as e:
+            if self.debug:
+                print(f"Error calling /pack-voxels:")
+                print(f"   Error: {response.headers.get('error')}")
+                print(f"   Traceback: {response.headers.get('traceback')}")
+                # raise e
+            return None
+
 
     def generate_mesh(
             self,
