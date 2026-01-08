@@ -199,10 +199,10 @@ class VixivClient:
         if self._has_bucket_privileges() and self.use_bucket:
             data['mesh_url'] = self.upload_file_to_bucket(mesh_path)
             data['avoid_urls'] = []
-                if avoid[:5] == "gs://":
-                    data['avoid_urls'].append(avoid)
-                else:
-                    data['avoid_urls'].append(self.upload_file_to_bucket(avoid))
+            if avoid[:5] == "gs://":
+                data['avoid_urls'].append(avoid)
+            else:
+                data['avoid_urls'].append(self.upload_file_to_bucket(avoid))
             response = self._make_request("POST", '/pack-voxels', data=data)
         else:
             files = {}
