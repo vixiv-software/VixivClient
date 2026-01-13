@@ -44,7 +44,7 @@ class VixivClient:
         self.session = requests.Session()
         self.session.headers.update({'X-API-Key': self.api_key, "id": self.id})
         if not isinstance(gcloud_creds, credentials.Credentials): gcloud_creds = None
-        self.bucket = storage.Client(credentials=gcloud_creds).bucket(self.bucket_name)
+        self.bucket = storage.Client(project="vixiv-geometry-backend", credentials=gcloud_creds).bucket(self.bucket_name)
         self.use_bucket = use_bucket
    
     def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
