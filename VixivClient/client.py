@@ -95,6 +95,8 @@ class VixivClient:
         Returns:
             bool: True if the client has permission, otherwise False.
         """
+        if os.environ.get("STORAGE_EMULATOR_HOST"):
+              return True
         roles = ["storage.objects.create"]
         granted = self.bucket.test_iam_permissions(roles)
         for role in roles:
